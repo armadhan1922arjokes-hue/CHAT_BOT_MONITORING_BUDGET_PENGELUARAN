@@ -5,6 +5,8 @@
 // ============================================================
 
 require('dotenv').config();
+const PDFDocument = require('pdfkit');
+const cron        = require('node-cron');
 const TelegramBot = require('node-telegram-bot-api');
 
 const BOT_TOKEN       = process.env.BOT_TOKEN;          // dari @BotFather
@@ -38,7 +40,7 @@ const fmt = (n) => 'Rp ' + Math.round(n).toLocaleString('id-ID');
 
 function parseKategori(text) {
   text = text.toLowerCase();
-  if (/makan|minum|kopi|nasi|warteg|Sarapan|bubur|Roti Tawar|Selai Kacang|soto|Rendang|Makan Malam|jajan|snack/.test(text)) return 'Makan & Minum';
+  if (/makan|minum|kopi|nasi|warteg|sarapan|bubur|roti tawar|selai kacang|soto|rendang|makan malam|jajan|snack/i.test(text)) return 'Makan & Minum';
   if (/ojek|gojek|grab|bensin|motor|busway|krl|mrt|angkot/.test(text))  return 'Transportasi';
   if (/belanja|supermarket|indomaret|alfamart|sembako/.test(text))       return 'Belanja';
   if (/obat|dokter|rs|apotek|vitamin|klinik/.test(text))                 return 'Kesehatan';
@@ -48,7 +50,7 @@ function parseKategori(text) {
 }
 
 const getToday = () =>
-  new Date().toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  new Date().toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', day: '2-digit', month: '2-digit', year: 'numeric' });
 
 function getWeekNum() {
   const d = new Date(), start = new Date(d.getFullYear(), 0, 1);
@@ -219,3 +221,204 @@ bot.onText(/\/help/, async (msg) => {
 });
 
 console.log('🤖 Bot Telegram Pengeluaran aktif (mode Apps Script)!');
+
+// ===== WEB SERVER buat Render + keep-alive =====
+const http = require('http');
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Bot pengeluaran aktif! 🤖');
+}).listen(PORT, () => {
+  console.log('🌐 Web server jalan di port ' + PORT + ' (buat keep-alive)');
+});
+
+
+//TAMABAHAKN KODE UNTUK KIRIM LAPORAN PADA SAAT AKHIR BULAN NANTI.
+
+
+const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
+const CHART_COLORS  = ['#2E7D32', '#1565C0', '#E65100', '#6A1B9A', '#AD1457', '#00838F', '#5D4037'];
+
+// Format singkat (Rp 74rb, Rp 1,9jt) untuk kartu & tengah donut
+function fmtShort(n) {
+  if (n >= 1000000) return 'Rp ' + (n / 1000000).toFixed(1).replace('.0', '').replace('.', ',') + 'jt';
+  if (n >= 1000)    return 'Rp ' + Math.round(n / 1000) + 'rb';
+  return 'Rp ' + Math.round(n);
+}
+
+// ── Generate PDF infografis (digambar manual pakai pdfkit) ──────
+async function generatePDF(rows, bulan) {
+  return new Promise((resolve) => {
+    const doc = new PDFDocument({ margin: 0, size: 'A4' });
+    const chunks = [];
+    doc.on('data', c => chunks.push(c));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+
+    const W = 595;
+    const total = rows.reduce((s, r) => s + (parseFloat(r[5]) || 0), 0);
+    const pct   = total > 0 ? Math.round((total / BUDGET) * 100) : 0;
+    const sisa  = Math.max(0, BUDGET - total);
+
+    // ===== HEADER BAND =====
+    doc.rect(0, 0, W, 95).fill('#1B5E20');
+    doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(22).text('Laporan Pengeluaran', 50, 30);
+    doc.fillColor('#A5D6A7').font('Helvetica').fontSize(13).text(bulan, 50, 60);
+
+    // ===== KARTU RINGKASAN =====
+    const cardY = 125, cardH = 70, cardW = 116, gap = 10;
+    const cards = [
+      { l: 'Total Keluar', v: fmtShort(total), c: '#E53935' },
+      { l: 'Budget',       v: fmtShort(BUDGET), c: '#1B5E20' },
+      { l: 'Sisa Budget',  v: fmtShort(sisa),  c: pct >= 100 ? '#E53935' : '#2E7D32' },
+      { l: 'Transaksi',    v: rows.length + 'x', c: '#1565C0' },
+    ];
+    cards.forEach((card, i) => {
+      const x = 50 + i * (cardW + gap);
+      doc.roundedRect(x, cardY, cardW, cardH, 8).fill('#F5F5F5');
+      doc.fillColor('#757575').font('Helvetica').fontSize(8.5).text(card.l, x + 10, cardY + 13, { width: cardW - 20 });
+      doc.fillColor(card.c).font('Helvetica-Bold').fontSize(17).text(card.v, x + 10, cardY + 33, { width: cardW - 20 });
+    });
+
+    // ===== PROGRESS BAR BUDGET =====
+    const secY = 230;
+    doc.fillColor('#212121').font('Helvetica-Bold').fontSize(13).text('Penggunaan Budget Bulan Ini', 50, secY);
+    const tX = 50, tY = secY + 26, tW = 495, tH = 24;
+    doc.roundedRect(tX, tY, tW, tH, 6).fill('#E0E0E0');
+    const fillW = Math.max(6, tW * Math.min(1, total / BUDGET));
+    const barColor = pct >= 100 ? '#C62828' : pct >= 80 ? '#F9A825' : '#2E7D32';
+    doc.roundedRect(tX, tY, fillW, tH, 6).fill(barColor);
+    if (fillW > 50) {
+      doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(11).text(pct + '%', tX + 10, tY + 7);
+    } else {
+      doc.fillColor('#424242').font('Helvetica-Bold').fontSize(11).text(pct + '%', tX + fillW + 6, tY + 7);
+    }
+    doc.fillColor('#9E9E9E').font('Helvetica').fontSize(9).text('Rp 0', tX, tY + tH + 6);
+    doc.fillColor('#9E9E9E').font('Helvetica').fontSize(9).text(fmt(BUDGET), tX, tY + tH + 6, { width: tW, align: 'right' });
+
+    // ===== DONUT CHART PER KATEGORI =====
+    const perKat = {};
+    rows.forEach(r => { perKat[r[3]] = (perKat[r[3]] || 0) + (parseFloat(r[5]) || 0); });
+    const cats = Object.keys(perKat).sort((a, b) => perKat[b] - perKat[a]);
+
+    const catSecY = 330;
+    doc.fillColor('#212121').font('Helvetica-Bold').fontSize(13).text('Pengeluaran per Kategori', 50, catSecY);
+
+    const cx = 160, cy = catSecY + 120, r = 78;
+    if (total > 0) {
+      let ang = -Math.PI / 2;
+      cats.forEach((cat, i) => {
+        const frac  = perKat[cat] / total;
+        const color = CHART_COLORS[i % CHART_COLORS.length];
+        if (frac >= 0.9999) {
+          doc.circle(cx, cy, r).fill(color);
+        } else {
+          const a2 = ang + frac * 2 * Math.PI;
+          const x1 = cx + r * Math.cos(ang), y1 = cy + r * Math.sin(ang);
+          const x2 = cx + r * Math.cos(a2),  y2 = cy + r * Math.sin(a2);
+          const large = (a2 - ang) > Math.PI ? 1 : 0;
+          doc.path(`M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`).fill(color);
+          ang = a2;
+        }
+      });
+    }
+    // lubang donut + label tengah
+    doc.circle(cx, cy, r * 0.6).fill('#FFFFFF');
+    doc.fillColor('#9E9E9E').font('Helvetica').fontSize(8).text('TOTAL', cx - 45, cy - 16, { width: 90, align: 'center' });
+    doc.fillColor('#212121').font('Helvetica-Bold').fontSize(14).text(fmtShort(total), cx - 45, cy - 4, { width: 90, align: 'center' });
+
+    // legend di kanan donut
+    const legX = 300;
+    let legY = catSecY + 45;
+    cats.forEach((cat, i) => {
+      const color = CHART_COLORS[i % CHART_COLORS.length];
+      const p = total > 0 ? Math.round((perKat[cat] / total) * 100) : 0;
+      doc.roundedRect(legX, legY + 2, 12, 12, 2).fill(color);
+      doc.fillColor('#616161').font('Helvetica').fontSize(10).text(cat, legX + 20, legY, { width: 235 });
+      doc.fillColor('#212121').font('Helvetica-Bold').fontSize(11).text(`${fmt(perKat[cat])}  ·  ${p}%`, legX + 20, legY + 13, { width: 235 });
+      legY += 38;
+    });
+
+    // ===== FOOTER =====
+    doc.fillColor('#BDBDBD').font('Helvetica').fontSize(8)
+       .text(`Dibuat otomatis oleh Bot Pengeluaran · ${new Date().toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta' })}`,
+             50, 800, { width: 495, align: 'center' });
+
+    doc.end();
+  });
+}
+
+// ── Generate + kirim laporan + arsipkan ─────────────────────────
+async function jalankanLaporanBulanan(chatId) {
+  await bot.sendMessage(chatId, '⏳ Sedang membuat laporan akhir bulan...');
+
+  const result = await callScript({ action: 'getAll' });
+  const rows   = (result && result.rows) ? result.rows : [];
+
+  if (rows.length === 0) {
+    await bot.sendMessage(chatId, '📋 Tidak ada data pengeluaran bulan ini. Sheet sudah bersih!');
+    return;
+  }
+
+  const bulan = String(rows[0][7]) || getBulanTahun();
+  const total = rows.reduce((s, r) => s + (parseFloat(r[5]) || 0), 0);
+  const pct   = Math.round((total / BUDGET) * 100);
+
+  const pdfBuffer = await generatePDF(rows, bulan);
+
+  await bot.sendDocument(
+    chatId,
+    pdfBuffer,
+    {
+      caption:    `📊 *Laporan ${bulan}*\n\nTotal: *${fmt(total)}* (${pct}% dari budget)\n${rows.length} transaksi dicatat`,
+      parse_mode: 'Markdown',
+    },
+    {
+      filename:    `Laporan_${bulan.replace(/\s/g, '_')}.pdf`,
+      contentType: 'application/pdf',
+    }
+  );
+
+  const arsip = await callScript({ action: 'archiveAndReset' });
+
+  await bot.sendMessage(
+    chatId,
+    `✅ *Selesai!*\n\n` +
+    `📁 ${arsip.msg}\n` +
+    `🗑️ Data Harian sudah dikosongkan\n` +
+    `💰 Budget bulan baru: *${fmt(BUDGET)}*\n\n` +
+    `Siap mulai bulan depan! 💪`,
+    { parse_mode: 'Markdown' }
+  );
+}
+
+// ── Command /akhirbulan (trigger manual) ─────────────────────────
+bot.onText(/\/akhirbulan/, async (msg) => {
+  try {
+    await jalankanLaporanBulanan(msg.chat.id);
+  } catch (err) {
+    console.error('Error /akhirbulan:', err.message);
+    await bot.sendMessage(msg.chat.id, `❌ Terjadi error: ${err.message}`);
+  }
+});
+
+// ── Command /myid (buat setup ADMIN_CHAT_ID) ─────────────────────
+bot.onText(/\/myid/, async (msg) => {
+  await bot.sendMessage(
+    msg.chat.id,
+    `🆔 *Chat ID lo:* \`${msg.chat.id}\`\n\n` +
+    `Tambahkan ke Render:\n*Variable:* \`ADMIN_CHAT_ID\`\n*Value:* \`${msg.chat.id}\``,
+    { parse_mode: 'Markdown' }
+  );
+});
+
+// ── Cron: otomatis tanggal 1 tiap bulan jam 00:00 WIB ───────────
+if (ADMIN_CHAT_ID) {
+  cron.schedule('0 0 1 * *', async () => {
+    console.log('📅 Cron laporan bulanan berjalan...');
+    try { await jalankanLaporanBulanan(ADMIN_CHAT_ID); }
+    catch (err) { console.error('Cron error:', err.message); }
+  }, { timezone: 'Asia/Jakarta' });
+  console.log('📅 Cron laporan bulanan aktif — jalan tiap tgl 1 jam 00:00 WIB');
+} else {
+  console.log('⚠️  ADMIN_CHAT_ID belum diset — cron otomatis nonaktif');
+}

@@ -1,20 +1,22 @@
 {
   "name": "telegram-expense-bot",
-  "version": "2.0.0",
-  "description": "Bot Telegram catatan pengeluaran - mode Apps Script (tanpa Google Cloud)",
+  "version": "3.0.0",
+  "description": "Bot Telegram catatan pengeluaran + laporan PDF visual bulanan otomatis",
   "main": "bot.js",
   "scripts": {
-    "start": "node bot.js",
-    "dev": "nodemon bot.js"
-  },
+     "start": "node bot.js",
+      "dev": "nodemon bot.js"
+     },
   "engines": {
-    "node": ">=18"
-  },
+     "node": ">=18" 
+    },
   "dependencies": {
     "node-telegram-bot-api": "^0.64.0",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.3.1",
+    "pdfkit": "^0.14.0",
+    "node-cron": "^3.0.3"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
-  }
+     "nodemon": "^3.0.2"
+    }
 }

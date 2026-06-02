@@ -38,7 +38,7 @@ const fmt = (n) => 'Rp ' + Math.round(n).toLocaleString('id-ID');
 
 function parseKategori(text) {
   text = text.toLowerCase();
-  if (/makan|minum|kopi|nasi|warteg|Sarapan|bubur|Roti Tawar|Selai Kacang|soto|Rendang|Makan Malam|jajan|snack/.test(text)) return 'Makan & Minum';
+  if (/makan|minum|kopi|nasi|warteg|sarapan|bubur|roti tawar|selai kacang|soto|rendang|makan malam|jajan|snack/i.test(text)) return 'Makan & Minum';
   if (/ojek|gojek|grab|bensin|motor|busway|krl|mrt|angkot/.test(text))  return 'Transportasi';
   if (/belanja|supermarket|indomaret|alfamart|sembako/.test(text))       return 'Belanja';
   if (/obat|dokter|rs|apotek|vitamin|klinik/.test(text))                 return 'Kesehatan';
@@ -48,7 +48,7 @@ function parseKategori(text) {
 }
 
 const getToday = () =>
-  new Date().toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  new Date().toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', day: '2-digit', month: '2-digit', year: 'numeric' });
 
 function getWeekNum() {
   const d = new Date(), start = new Date(d.getFullYear(), 0, 1);
